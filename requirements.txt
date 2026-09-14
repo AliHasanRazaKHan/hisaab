@@ -1,0 +1,2 @@
+# Domain core ki koi dependency nahi — sirf stdlib (Decimal, dataclasses).
+# Ye jaan-boojh kar hai: jo hissa sab se ahem hai wo kisi library pe nirbhar na ho.
