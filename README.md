@@ -74,7 +74,7 @@ explicitly — money to 2 places, FX rates to 4, percentages to 6.
 
 ## Status
 
-**Working end to end, as a web page and a CLI** — 81 tests.
+**Working end to end, as a web page and a CLI** — 98 tests.
 
 ```bash
 # The web tool — what a freelancer would actually use
@@ -89,7 +89,44 @@ python cli.py payoneer.csv --format payoneer --prc prc.csv --pseb
 
 # Format not recognised? Ask the file what it is.
 python cli.py mystery.csv --diagnose
+
+# Also write the filing record pack for whoever files your return
+python cli.py statement.csv --rates rates.csv --pack ./pack
 ```
+
+## The filing record pack
+
+The report is for the freelancer. The pack is for **whoever files the return** — they
+don't want analysis, they want the remittance register, the totals, and to know what is
+and isn't backed by evidence. `--pack` writes two files, and the web page shows the same
+thing with the register downloadable as CSV.
+
+```
+BEFORE FILING
+  [x] Every remittance has an ePRC from the bank
+  [x] PKR figures come from the ePRC, not a third-party rate
+  [-] At least 80% of income arrived through formal banking channels
+      Only relevant once you are PSEB-registered — this is the condition for the reduced rate
+  [ ] PSEB registration
+      Not registered. Registering would change the estimate to PKR 7,915.00 ...
+  [!] Rates verified against FBR for this tax year
+      ... a published guide, not the Finance Act. Confirm at fbr.gov.pk before filing.
+
+NOT READY TO FILE — see the [!] items above    ([-] = does not apply to you)
+```
+
+Three things this checklist does on purpose:
+
+- **It refuses to say "ready".** The FBR-verification item is permanently unticked,
+  because the rates here came from a published guide rather than the Finance Act. A
+  checklist that always goes green is worse than none — someone files on the strength of it.
+- **`[-]` is a real third state.** The 80% condition only applies to PSEB-registered
+  filers. Showing `[x]` to an unregistered user sends them off to fix their banking
+  channel when the actual issue is registration. My first version did exactly that: it
+  printed `[x]` above the words "Below the threshold" — **the checklist contradicting
+  itself in its own output**, caught by reading what it produced.
+- **Unproven remittances are listed separately**, never merged into the register, because
+  proven-versus-unproven is the distinction the filer most needs to see.
 
 ### The parsers will break, so the tool explains itself
 
@@ -214,12 +251,15 @@ And the rule the report holds to: **a payment with no recorded rate is never sil
 skipped.** It is named in a `PAYMENTS EXCLUDED` section and the process exits `1`, because
 quietly dropping it would understate export income — and that number goes on a tax return.
 
-## Three bugs the unit tests passed and the CLI caught
+## Four bugs the unit tests passed and running the thing caught
 
 All three were the same shape: **the part was safe and the join was not.** The safety check
 lived inside `estimate()` or `ManualRate`, and the report walked around it. Every one is now
 a regression test at the report level.
 
+0. **The checklist contradicted itself** — `[x]` printed directly above "Below the
+   threshold", because the pass/fail test and the explanation text used different logic.
+   Fixed with an explicit not-applicable state.
 1. **The 80% banking-channel condition never reached the report.** It read
    `tax["pseb_registered"]`, which is computed at a default 100%, so the 0.25% rate was
    applied even when only 75% was proven by ePRCs. On the sample data the tax came out at

@@ -25,6 +25,7 @@ from core.importers.wise import ImportProblem, parse_date
 from core.importers.wise import parse as parse_wise
 from core.prc import PrcEntry, match, rates_from_prc
 from core.money import money
+from core.pack import build_pack, register_csv, render_pack
 from core.report import build, render
 
 
@@ -112,6 +113,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--diagnose", action="store_true",
         help="Describe the file's columns and the mapping it would use, then stop",
+    )
+    parser.add_argument(
+        "--pack", type=Path, default=None, metavar="DIR",
+        help="Also write the filing record pack (summary + register CSV) to this directory",
     )
     parser.add_argument("--pseb", action="store_true", help="You are PSEB-registered")
     parser.add_argument("--tax-year", default=None, help="e.g. 2025-26")
@@ -201,6 +206,19 @@ def main(argv: list[str] | None = None) -> int:
         excluded_earlier=excluded_earlier,
     )
     print(render(result))
+
+    if args.pack is not None:
+        pack = build_pack(result)
+        args.pack.mkdir(parents=True, exist_ok=True)
+        summary = args.pack / f"filing-{pack.tax_year.replace('/', '-')}.txt"
+        register = args.pack / f"remittance-register-{pack.tax_year.replace('/', '-')}.csv"
+        summary.write_text(render_pack(pack), encoding="utf-8")
+        register.write_text(register_csv(pack), encoding="utf-8")
+        print("")
+        print(f"Filing pack written:\n  {summary}\n  {register}")
+        if not pack.ready_to_file:
+            print("  (pack is marked NOT READY TO FILE — see its checklist)")
+
     # Adhoori report pe non-zero exit — script mein chalane wale ko pata chale.
     return 0 if result["is_complete"] else 1
 

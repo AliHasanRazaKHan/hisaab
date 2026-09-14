@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import csv
 import io
+from urllib.parse import quote
 from decimal import Decimal
 
 from fastapi import FastAPI, File, Form, UploadFile
@@ -29,6 +30,7 @@ from core.importers import generic
 from core.importers.wise import ImportProblem, parse_date
 from core.importers.wise import parse as parse_wise
 from core.money import money
+from core.pack import build_pack, register_csv, render_pack
 from core.prc import PrcEntry, match, rates_from_prc
 from core.report import build, render
 
@@ -254,7 +256,18 @@ async def report(
         banking_channel_fraction=banking_fraction,
         excluded_earlier=excluded_earlier,
     )
+    pack = build_pack(result)
+    # Download stateless rehta hai: CSV data: URI mein jata hai, server pe
+    # kahin likha nahi jata. Isi liye is page pe koi file handle nahi khulta.
+    encoded = quote(register_csv(pack))
+    ready = "ready to file" if pack.ready_to_file else "NOT ready to file"
     return _page(
         f"<pre>{_escape(render(result))}</pre>"
+        "<h2>Filing record pack</h2>"
+        f"<p class=\"hint\">Hand this to whoever files your return &mdash; currently "
+        f"<strong>{ready}</strong>.</p>"
+        f"<pre>{_escape(render_pack(pack))}</pre>"
+        f'<p><a download="remittance-register.csv" '
+        f'href="data:text/csv;charset=utf-8,{encoded}">Download the remittance register (CSV)</a></p>'
         '<p><a href="/">Run another statement</a></p>'
     )
