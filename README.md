@@ -74,7 +74,7 @@ explicitly — money to 2 places, FX rates to 4, percentages to 6.
 
 ## Status
 
-**Working end to end from the command line** — 62 tests.
+**Working end to end from the command line** — 69 tests.
 
 ```bash
 # Wise: one statement has everything
@@ -82,7 +82,34 @@ python cli.py statement.csv --rates rates.csv --pseb
 
 # Payoneer (or any bank statement): needs the ePRC ledger too — see below
 python cli.py payoneer.csv --format payoneer --prc prc.csv --pseb
+
+# Format not recognised? Ask the file what it is.
+python cli.py mystery.csv --diagnose
 ```
+
+### The parsers will break, so the tool explains itself
+
+Both parsers are written to *documented* formats. In the previous project every feed bug
+came from hitting real data and **none** from reading documentation, so some real export
+will not match. The useful question is what happens then.
+
+`--diagnose` (and any failed import) prints the file's columns, the mapping it would
+guess, and a sample row:
+
+```
+Found 5 columns, 1 data row(s).
+Columns: Posting Date, Particulars, Debit, Credit, Balance
+
+Best guess at the mapping:
+  date           <- 'Posting Date'
+  amount         <- 'Credit'
+  description    <- 'Particulars'
+```
+
+That guess can be handed straight to the mapped importer, so an unrecognised bank
+statement is a five-second configuration rather than a code change. Header matching falls
+back from exact to prefix, which is how Wise's `Target amount (after fees)` is found —
+a gap one of these tests caught.
 
 Built: the money engine, the tax engine, the Wise importer, a **mapped importer for any
 statement** (Payoneer preset included), the **ePRC ledger and matcher**, the FX rate

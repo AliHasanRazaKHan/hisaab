@@ -18,6 +18,7 @@ import sys
 from datetime import date
 from pathlib import Path
 
+from core.diagnose import diagnose
 from core.fx import ManualRate
 from core.importers import generic
 from core.importers.wise import ImportProblem, parse_date
@@ -108,6 +109,10 @@ def main(argv: list[str] | None = None) -> int:
         "--hand-entered-rates", action="store_true",
         help="Mark the rates as hand-entered rather than from a PRC",
     )
+    parser.add_argument(
+        "--diagnose", action="store_true",
+        help="Describe the file's columns and the mapping it would use, then stop",
+    )
     parser.add_argument("--pseb", action="store_true", help="You are PSEB-registered")
     parser.add_argument("--tax-year", default=None, help="e.g. 2025-26")
     parser.add_argument(
@@ -121,6 +126,10 @@ def main(argv: list[str] | None = None) -> int:
     except OSError as exc:
         print(f"Could not read {args.statement}: {exc}", file=sys.stderr)
         return 2
+
+    if args.diagnose:
+        print(diagnose(content).explain())
+        return 0
 
     banking_fraction = args.banking_fraction
     excluded_earlier: list[str] = []
@@ -163,7 +172,12 @@ def main(argv: list[str] | None = None) -> int:
             rates = load_rates(args.rates, from_prc=not args.hand_entered_rates) \
                 if args.rates else rates_from_prc(prc_entries)
     except ImportProblem as exc:
-        print(f"Import failed: {exc}", file=sys.stderr)
+        # Sirf "Import failed" likh kar chup ho jana bekar hai — user ke paas na
+        # wajah hoti hai na hal. File ki shakal bata dena us ko khud mapping
+        # dene ke qabil banata hai, aur hamare parsers abhi documented formats
+        # pe bane hain (asli files pe tasdeeq nahi), to ye soorat aani hi hai.
+        print(f"Import failed: {exc}\n", file=sys.stderr)
+        print(diagnose(content).explain(), file=sys.stderr)
         return 2
 
     if excluded_earlier:
