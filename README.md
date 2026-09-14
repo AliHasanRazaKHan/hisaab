@@ -74,9 +74,13 @@ explicitly — money to 2 places, FX rates to 4, percentages to 6.
 
 ## Status
 
-**Working end to end from the command line** — 69 tests.
+**Working end to end, as a web page and a CLI** — 81 tests.
 
 ```bash
+# The web tool — what a freelancer would actually use
+uvicorn web.app:app
+# then open http://127.0.0.1:8000
+
 # Wise: one statement has everything
 python cli.py statement.csv --rates rates.csv --pseb
 
@@ -141,9 +145,21 @@ proven to have arrived through formal banking channels.** Income with no ePRC do
 count toward the 80% condition, so the evidence and the eligibility are the same
 calculation rather than two guesses.
 
-Deliberately **not** built yet: accounts, billing, web UI, PDF export. The report is what
-saves the user money; auth and dashboards do not. Those come after someone pays for a
-report, not before.
+Deliberately **not** built yet: accounts, billing, PDF export. The report is what saves
+the user money; auth and dashboards do not. Those come after someone pays for a report,
+not before.
+
+### Nothing is stored, and that is a feature
+
+There is **no database, no saved upload, no account, and no amount in any log**. The
+statement is parsed in memory and everything is discarded when the response renders.
+`test_no_database_or_storage_is_configured` asserts that `web/app.py` contains no
+storage calls at all, so this cannot quietly stop being true.
+
+This is bank and tax data. What is never stored cannot be leaked — and most competitors
+cannot make that claim, because their business model needs the data. It is also why auth
+and billing are deferred rather than merely unfinished: a stateless tool has nothing to
+protect yet.
 
 ### Why the rate has to come from your PRC
 

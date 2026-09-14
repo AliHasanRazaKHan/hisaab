@@ -1,2 +1,5 @@
+# Web tool ke liye (domain core ki koi dependency nahi — wo sirf stdlib hai).
 # Domain core ki koi dependency nahi — sirf stdlib (Decimal, dataclasses).
 # Ye jaan-boojh kar hai: jo hissa sab se ahem hai wo kisi library pe nirbhar na ho.
+fastapi==0.115.0
+python-multipart==0.0.12
