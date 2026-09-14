@@ -74,15 +74,45 @@ explicitly — money to 2 places, FX rates to 4, percentages to 6.
 
 ## Status
 
-**Working end to end from the command line** — 43 tests.
+**Working end to end from the command line** — 62 tests.
 
 ```bash
+# Wise: one statement has everything
 python cli.py statement.csv --rates rates.csv --pseb
+
+# Payoneer (or any bank statement): needs the ePRC ledger too — see below
+python cli.py payoneer.csv --format payoneer --prc prc.csv --pseb
 ```
 
-Built: the money engine, the tax engine, the Wise CSV importer, the FX rate source, the
-report, and a CLI. Exit codes are meaningful — `1` means the report is incomplete
-(a payment had no rate), `2` means the file could not be read.
+Built: the money engine, the tax engine, the Wise importer, a **mapped importer for any
+statement** (Payoneer preset included), the **ePRC ledger and matcher**, the FX rate
+source, the report, and a CLI. Exit codes are meaningful — `1` means the report is
+incomplete (a payment lacked a rate or an ePRC, so export income is understated), `2`
+means the file could not be read.
+
+### Why a Payoneer statement alone is not enough
+
+Payoneer's export gives `Transaction Date, Description, Amount, Currency, Source, Target,
+Reference ID` — **no exchange rate and no PKR.** That is not an omission on their part: the
+statement records their own currency account. The client sent USD and it arrived as USD.
+PKR appears when the money reaches your **bank**, and that transaction is not in the file
+at all.
+
+So the two sides are modelled separately and matched:
+
+- **RailCredit** — what the client sent (from the rail statement)
+- **PrcEntry** — what the bank credited in PKR (from the ePRC, the document a Pakistani
+  export claim actually rests on)
+
+Matching is on amount within a date window, because a withdrawal takes 2–5 days and exact
+dates never line up. Each ePRC is consumed once — otherwise one certificate would "prove"
+two payments and export income would double. Anything unmatched is **named**, never
+assumed, and it makes the report incomplete.
+
+That matching also produces the number the tax rule depends on: **the fraction of income
+proven to have arrived through formal banking channels.** Income with no ePRC does not
+count toward the 80% condition, so the evidence and the eligibility are the same
+calculation rather than two guesses.
 
 Deliberately **not** built yet: accounts, billing, web UI, PDF export. The report is what
 saves the user money; auth and dashboards do not. Those come after someone pays for a
@@ -140,6 +170,28 @@ All three are handled, and each has a test named after it:
 And the rule the report holds to: **a payment with no recorded rate is never silently
 skipped.** It is named in a `PAYMENTS EXCLUDED` section and the process exits `1`, because
 quietly dropping it would understate export income — and that number goes on a tax return.
+
+## Three bugs the unit tests passed and the CLI caught
+
+All three were the same shape: **the part was safe and the join was not.** The safety check
+lived inside `estimate()` or `ManualRate`, and the report walked around it. Every one is now
+a regression test at the report level.
+
+1. **The 80% banking-channel condition never reached the report.** It read
+   `tax["pseb_registered"]`, which is computed at a default 100%, so the 0.25% rate was
+   applied even when only 75% was proven by ePRCs. On the sample data the tax came out at
+   **PKR 3,816 instead of PKR 15,265** — four times too low, which is a real underpayment.
+2. **PRC rates were used as if they were mid-market.** A realised rate already contains the
+   spread, so measuring the spread against it returns zero — the report printed
+   "Lost to fees + spread: PKR 0.00" and one payment showed a *negative* spread. It now
+   refuses to show a cost analysis and says why. `MidMarketRate.is_mid_market` exists for
+   exactly this.
+3. **Payments dropped during ePRC matching left the report calling itself complete.** They
+   never entered `needs_rate`, so `is_complete` stayed true and the process exited `0`
+   while understating income. Exclusions from earlier stages now count.
+
+This is the same lesson as the previous project, arriving a different way: unit tests prove
+the pieces, and running the thing proves the assembly.
 
 ## Running it
 

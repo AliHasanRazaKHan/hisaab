@@ -19,7 +19,11 @@ from datetime import date
 from pathlib import Path
 
 from core.fx import ManualRate
-from core.importers.wise import ImportProblem, parse, parse_date
+from core.importers import generic
+from core.importers.wise import ImportProblem, parse_date
+from core.importers.wise import parse as parse_wise
+from core.prc import PrcEntry, match, rates_from_prc
+from core.money import money
 from core.report import build, render
 
 
@@ -53,9 +57,49 @@ def load_rates(path: Path | None, *, from_prc: bool) -> ManualRate:
     return source
 
 
+def load_prc(path: Path) -> list[PrcEntry]:
+    """
+    ePRC ledger: `date,usd,pkr[,certificate,bank]`.
+
+    Ye sab se authoritative data hai — bank ka jaari kiya hua kaghaz, jis pe
+    Pakistan mein export income ka dawa khara hota hai.
+    """
+    entries: list[PrcEntry] = []
+    with path.open(newline="", encoding="utf-8-sig") as handle:
+        for line, row in enumerate(csv.reader(handle), start=1):
+            if not row or len(row) < 3:
+                continue
+            try:
+                day = parse_date(row[0])
+            except ValueError:
+                continue  # header row
+            try:
+                entries.append(
+                    PrcEntry(
+                        issued_on=day,
+                        usd_amount=money(row[1].strip()),
+                        pkr_credited=money(row[2].strip()),
+                        certificate_no=row[3].strip() if len(row) > 3 else "",
+                        bank=row[4].strip() if len(row) > 4 else "",
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001
+                print(f"  prc.csv line {line}: {exc}", file=sys.stderr)
+    return entries
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Export income and rail-cost report.")
-    parser.add_argument("statement", type=Path, help="Wise transfer CSV export")
+    parser.add_argument("statement", type=Path, help="Rail statement CSV export")
+    parser.add_argument(
+        "--format", default="wise", choices=["wise", *sorted(generic.PRESETS)],
+        help="Statement format (default: wise)",
+    )
+    parser.add_argument(
+        "--prc", type=Path, default=None,
+        help="ePRC ledger CSV 'date,usd,pkr[,certificate,bank]' — required for formats "
+             "whose statement cannot show PKR (e.g. payoneer)",
+    )
     parser.add_argument(
         "--rates", type=Path, default=None,
         help="CSV of 'date,rate' mid-market rates (take them from your PRC/ePRC)",
@@ -78,25 +122,69 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Could not read {args.statement}: {exc}", file=sys.stderr)
         return 2
 
+    banking_fraction = args.banking_fraction
+    excluded_earlier: list[str] = []
+
     try:
-        imported = parse(content)
+        if args.format == "wise":
+            imported = parse_wise(content)
+            transfers, skipped = imported.transfers, imported.skipped
+            rates = load_rates(args.rates, from_prc=not args.hand_entered_rates)
+        else:
+            # Ye formats PKR bata hi nahi sakte (core/importers/generic.py dekho),
+            # is liye PRC ledger lazmi hai.
+            if args.prc is None:
+                print(
+                    f"--prc is required with --format {args.format}: a {args.format} "
+                    "statement records its own currency account, so it cannot show what "
+                    "your bank credited in PKR. That figure comes from the ePRC.",
+                    file=sys.stderr,
+                )
+                return 2
+            rail = generic.parse(content, args.format)
+            prc_entries = load_prc(args.prc)
+            paired = match(rail.credits, prc_entries)
+            transfers = paired.matched
+            skipped = list(rail.skipped)
+            for credit in paired.credits_without_prc:
+                # Ye report ko **adhoora** banati hain, sirf "skipped" nahi —
+                # in ke bagair export income kam dikhta hai.
+                excluded_earlier.append(
+                    f"{credit.received_on.isoformat()} ${credit.gross_usd} — no matching ePRC"
+                )
+            for entry in paired.prc_without_credit:
+                skipped.append(
+                    f"{entry.issued_on.isoformat()} ${entry.usd_amount} — ePRC with no "
+                    "matching credit in this statement"
+                )
+            # Reduced rate ki shart isi se tay hoti hai: jo PRC se sabit nahi,
+            # wo formal banking channel mein shumar nahi hota.
+            banking_fraction = paired.banking_channel_fraction
+            rates = load_rates(args.rates, from_prc=not args.hand_entered_rates) \
+                if args.rates else rates_from_prc(prc_entries)
     except ImportProblem as exc:
         print(f"Import failed: {exc}", file=sys.stderr)
         return 2
 
-    if imported.skipped:
-        print(f"Skipped {len(imported.skipped)} row(s):", file=sys.stderr)
-        for reason in imported.skipped[:10]:
+    if excluded_earlier:
+        print(f"Excluded, income understated ({len(excluded_earlier)}):", file=sys.stderr)
+        for reason in excluded_earlier:
             print(f"  - {reason}", file=sys.stderr)
         print("", file=sys.stderr)
 
-    rates = load_rates(args.rates, from_prc=not args.hand_entered_rates)
+    if skipped:
+        print(f"Skipped ({len(skipped)}):", file=sys.stderr)
+        for reason in skipped[:10]:
+            print(f"  - {reason}", file=sys.stderr)
+        print("", file=sys.stderr)
+
     result = build(
-        imported.transfers,
+        transfers,
         rates,
         tax_year=args.tax_year,
         pseb_registered=args.pseb,
-        banking_channel_fraction=args.banking_fraction,
+        banking_channel_fraction=banking_fraction,
+        excluded_earlier=excluded_earlier,
     )
     print(render(result))
     # Adhoori report pe non-zero exit — script mein chalane wale ko pata chale.

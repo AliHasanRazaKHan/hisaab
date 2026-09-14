@@ -118,3 +118,74 @@ def test_an_empty_statement_does_not_crash():
     assert result["rails"]["total_cost_pkr"] == Decimal("0.00")
     assert result["your_tax_pkr"] == Decimal("0.00")
     assert "HISAAB" in render(result)
+
+
+# --- three bugs found by running the CLI, not by unit tests -----------------
+#
+# Teeno ek hi shakal ke the: hissa mehfooz tha, **jor mehfooz nahi**. Safety
+# check `estimate()`/`ManualRate` ke andar mojood tha aur report us ke ird-gird
+# se guzar rahi thi. Isi liye ye tests report ke darje pe likhe gaye hain.
+
+
+def test_the_banking_channel_condition_reaches_the_report():
+    """
+    Asli bug: report `tax["pseb_registered"]` uthati thi, jo default 100%
+    banking-channel pe bana hota hai — nateeja ye ke 0.25% wala rate dikh jata
+    tha chahe PRC se sirf 75% sabit ho. CLI pe tax PKR 3,816 dikha jab ke sahi
+    PKR 15,265 tha: chaar guna kam, yaani asli underpayment.
+    """
+    d1 = date(2026, 4, 3)
+    result = build(
+        [_transfer(d1)],
+        _rates(d1),
+        pseb_registered=True,
+        banking_channel_fraction=Decimal("0.753"),
+    )
+    # 0.25% nahi — 1%.
+    assert result["your_tax_pkr"] == Decimal("8190.00")
+    assert "no PSEB registration" in result["your_scenario"]
+    assert any("at least 80%" in w for w in result["warnings"])
+
+
+def test_realised_prc_rates_suppress_the_cost_analysis():
+    """
+    PRC ka rate realised hai — us mein spread pehle se shamil hai. Use
+    mid-market ki tarah lagane se laagat 0 nikalti thi, yaani report kehti thi
+    "koi nuqsan nahi hua". Wo jhoot hai.
+    """
+    from core.prc import PrcEntry, rates_from_prc
+
+    d1 = date(2026, 4, 3)
+    entry = PrcEntry(d1, Decimal("3000.00"), Decimal("819000.00"))
+    result = build([_transfer(d1)], rates_from_prc([entry]))
+
+    assert result["income"].cost_analysis_available is False
+    assert "not calculable" in render(result)
+    assert any("realised rates" in w for w in result["warnings"])
+    # Aur jhoota 0.00% kahin nazar nahi aana chahiye.
+    assert "0.00%" not in render(result)
+
+
+def test_mid_market_rates_still_produce_a_cost_analysis():
+    """Fix ne asli raasta band nahi kiya."""
+    d1 = date(2026, 4, 3)
+    result = build([_transfer(d1)], _rates(d1))
+    assert result["income"].cost_analysis_available is True
+    assert "not calculable" not in render(result)
+
+
+def test_payments_dropped_before_the_report_make_it_incomplete():
+    """
+    Jo payment matching stage pe giri wo `needs_rate` mein nahi aati thi, is
+    liye `is_complete` True reh jata tha aur exit code 0 — report khud ko
+    mukammal kehti thi jab ke export income kam tha.
+    """
+    d1 = date(2026, 4, 3)
+    result = build(
+        [_transfer(d1)],
+        _rates(d1),
+        excluded_earlier=["2026-06-01 $1800.00 — no matching ePRC"],
+    )
+    assert result["is_complete"] is False
+    assert any("understated" in w for w in result["warnings"])
+    assert "PAYMENTS EXCLUDED" in render(result)

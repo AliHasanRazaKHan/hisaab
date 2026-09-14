@@ -53,6 +53,13 @@ class MidMarketRate:
     source: str
     # PRC se aaya ho to ye sab se mazboot soorat hai — sarkari dastaawez.
     is_authoritative: bool = False
+    # **Ye rate mid-market hai ya wo rate jo waqai mila?**
+    #
+    # PRC ka rate *realised* hai — us mein spread pehle se shamil hai. Us ko
+    # mid-market ki jagah rakhne se laagat 0 nikalti hai, yaani tool kehta hai
+    # "koi nuqsan nahi hua", jo jhoot hai. Is liye ye flag zaroori hai aur
+    # report is pe laagat ka tajziya band kar deti hai.
+    is_mid_market: bool = True
 
 
 class RateSource(Protocol):
@@ -82,6 +89,7 @@ class ManualRate:
         pair: str = "USD/PKR",
         source: str = "entered by hand",
         authoritative: bool = False,
+        is_mid_market: bool = True,
     ) -> MidMarketRate:
         record = MidMarketRate(
             on=day,
@@ -89,6 +97,7 @@ class ManualRate:
             value=to_rate(value),
             source=source,
             is_authoritative=authoritative,
+            is_mid_market=is_mid_market,
         )
         self._rates[(day, pair)] = record
         return record
