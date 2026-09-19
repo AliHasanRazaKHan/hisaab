@@ -1,5 +1,9 @@
-# Web tool ke liye (domain core ki koi dependency nahi — wo sirf stdlib hai).
-# Domain core ki koi dependency nahi — sirf stdlib (Decimal, dataclasses).
+# Domain core (core/) ki koi dependency nahi — sirf stdlib (Decimal, csv, dataclasses).
 # Ye jaan-boojh kar hai: jo hissa sab se ahem hai wo kisi library pe nirbhar na ho.
-fastapi==0.115.0
+#
+# Neeche wali sirf web tool ke liye hain.
+#
+# `fastapi[standard]` — bare `fastapi` nahi: FastAPI Cloud ka container entrypoint
+# `fastapi run` hai, jo fastapi-cli mein hota hai. RemotePK pe yehi crash-loop bana tha.
+fastapi[standard]==0.115.0
 python-multipart==0.0.12
