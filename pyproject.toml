@@ -1,0 +1,18 @@
+[project]
+name = "hisaab"
+version = "0.1.0"
+description = "Export income and tax tooling for Pakistani freelancers"
+requires-python = ">=3.12"
+dependencies = [
+    # `fastapi[standard]` — bare `fastapi` nahi: container entrypoint `fastapi run`
+    # hai, jo fastapi-cli mein hota hai.
+    "fastapi[standard]==0.115.0",
+    "python-multipart==0.0.12",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["core", "web"]
