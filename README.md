@@ -74,7 +74,7 @@ explicitly — money to 2 places, FX rates to 4, percentages to 6.
 
 ## Status
 
-**Working end to end, as a web page and a CLI** — 98 tests.
+**Working end to end, as a web page and a CLI** — 130 tests.
 
 ```bash
 # The web tool — what a freelancer would actually use
@@ -90,9 +90,40 @@ python cli.py payoneer.csv --format payoneer --prc prc.csv --pseb
 # Format not recognised? Ask the file what it is.
 python cli.py mystery.csv --diagnose
 
+# Ask the project about itself
+python cli.py x --ask "is PSEB registration worth it?"
+
 # Also write the filing record pack for whoever files your return
 python cli.py statement.csv --rates rates.csv --pack ./pack
 ```
+
+## The built-in Q&A
+
+There is a question box on the web page (`/ask`) and an `--ask` flag on the CLI. It
+answers questions about this project — tax rules, what a payment cost, ePRCs, privacy,
+architecture, and its own limitations.
+
+**No model was trained, and that is deliberate.** For a tax tool, a confident wrong answer
+is the worst possible failure: someone files on it. So:
+
+- **Every number is computed live** from `core/taxrules.py` and `core/money.py` — the same
+  code the report runs on. Ask "what tax rate do I pay?" and the figure comes from the
+  engine, not from remembered text, so it cannot drift from what the tool applies. A test
+  changes the rule and asserts the answer changes with it.
+- **Every answer cites its source** file or document. An entry without one fails a test.
+- **Unknown means unknown.** Below a confidence threshold it says so and offers the nearest
+  topics rather than guessing. "What is the capital of France" gets a refusal.
+- **Deterministic retrieval** — the same question always returns the same answer.
+
+43 entries, **166 question phrasings**, 11 topics. A test asserts every phrasing routes to
+its own entry, which caught two real retrieval bugs:
+
+1. The phrase-match compared the question against *stopword-stripped* tokens, so any
+   question containing ordinary words could never match — "Why do I need a PRC?" landed on
+   the CSV-format entry instead of the explanation.
+2. Short questions **saturated** the score, so ties were broken alphabetically. Switching to
+   Dice similarity fixed the ranking; "Who is this for?" is all stopwords and needed the
+   phrase path to survive at all.
 
 ## The filing record pack
 

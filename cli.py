@@ -18,6 +18,7 @@ import sys
 from datetime import date
 from pathlib import Path
 
+from chat.engine import ask as ask_bot
 from core.diagnose import diagnose
 from core.fx import ManualRate
 from core.importers import generic
@@ -94,6 +95,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Export income and rail-cost report.")
     parser.add_argument("statement", type=Path, help="Rail statement CSV export")
     parser.add_argument(
+        "--ask", metavar="QUESTION", default=None,
+        help="Ask about this tool instead of running a report",
+    )
+    parser.add_argument(
         "--format", default="wise", choices=["wise", *sorted(generic.PRESETS)],
         help="Statement format (default: wise)",
     )
@@ -125,6 +130,16 @@ def main(argv: list[str] | None = None) -> int:
         help="Fraction of income received through formal banking channels",
     )
     args = parser.parse_args(argv)
+
+    if args.ask:
+        answer = ask_bot(args.ask)
+        print(answer.text)
+        if answer.sources:
+            print(f"\nFrom: {', '.join(answer.sources)}")
+        if answer.suggestions:
+            print(f"\n{'Try' if answer.is_fallback else 'Related'}: "
+                  + " | ".join(answer.suggestions))
+        return 0 if answer.confident else 1
 
     try:
         content = args.statement.read_bytes()

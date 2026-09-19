@@ -24,6 +24,7 @@ from decimal import Decimal
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import HTMLResponse
 
+from chat.engine import ask as ask_bot
 from core.diagnose import diagnose
 from core.fx import ManualRate
 from core.importers import generic
@@ -68,12 +69,27 @@ PAGE = """<!doctype html>
     padding:1rem; overflow-x:auto; font-size:.84rem; line-height:1.5; }}
   .privacy {{ border-left:3px solid var(--accent); padding:.6rem .9rem; background:rgba(127,127,127,.06);
     font-size:.88rem; margin:0 0 1.8rem; }}
+  .askbar {{ display:flex; gap:.5rem; margin:0 0 1.5rem; }}
+  .askbar input {{ flex:1; padding:.6rem .75rem; border:1px solid var(--line);
+    border-radius:8px; background:transparent; color:var(--fg); font:inherit; }}
+  .askbar button {{ margin:0; padding:.6rem 1.1rem; }}
+  .answer {{ border:1px solid var(--line); border-left:3px solid var(--accent);
+    border-radius:8px; padding:.9rem 1.1rem; margin:0 0 1.5rem; }}
+  .answer pre {{ margin:0; background:none; border:0; padding:0; white-space:pre-wrap; }}
+  .src {{ color:var(--muted); font-size:.8rem; margin:.6rem 0 0; }}
   footer {{ margin-top:2.5rem; color:var(--muted); font-size:.82rem; border-top:1px solid var(--line);
     padding-top:1rem; }}
 </style>
 <main>
 <h1>What did that payment really cost you?</h1>
 <p class="sub">Your statement's fee is not the whole fee. And your export tax may be 4&times; higher than it needs to be.</p>
+
+<form method="get" action="/ask" class="askbar">
+  <input type="text" name="q" placeholder="Ask about this tool &mdash; tax rates, fees, privacy, how it works"
+         value="{question}" aria-label="Ask a question">
+  <button type="submit">Ask</button>
+</form>
+{answer}
 
 <p class="privacy"><strong>Nothing is stored.</strong> No account, no database, no saved
 files. Your statement is read in memory and discarded when this page renders. What is
@@ -167,8 +183,10 @@ def _load_prc(text: str) -> list[PrcEntry]:
     return entries
 
 
-def _page(body: str) -> HTMLResponse:
-    return HTMLResponse(PAGE.format(body=body))
+def _page(body: str, *, question: str = "", answer_html: str = "") -> HTMLResponse:
+    return HTMLResponse(
+        PAGE.format(body=body, question=_escape(question), answer=answer_html)
+    )
 
 
 def _escape(text: str) -> str:
@@ -180,6 +198,35 @@ def _escape(text: str) -> str:
 @app.get("/", response_class=HTMLResponse)
 def form() -> HTMLResponse:
     return _page(FORM)
+
+
+@app.get("/ask", response_class=HTMLResponse)
+def ask_question(q: str = "") -> HTMLResponse:
+    """
+    Project ke bare mein sawal.
+
+    Jawab retrieval se aata hai aur har adad live engine se — tafseel
+    chat/engine.py mein. Jo maloom na ho us pe saaf inkar, kyunke is domain
+    mein pur-yaqeen ghalat jawab sab se bura natija hai.
+    """
+    answer = ask_bot(q)
+    sources = (
+        f'<p class="src">From: {_escape(", ".join(answer.sources))}</p>'
+        if answer.sources
+        else ""
+    )
+    suggestions = ""
+    if answer.suggestions:
+        links = " &middot; ".join(
+            f'<a href="/ask?q={quote(s)}">{_escape(s)}</a>' for s in answer.suggestions
+        )
+        label = "Try:" if answer.is_fallback else "Related:"
+        suggestions = f'<p class="src">{label} {links}</p>'
+
+    block = (
+        f'<div class="answer"><pre>{_escape(answer.text)}</pre>{sources}{suggestions}</div>'
+    )
+    return _page(FORM, question=q, answer_html=block)
 
 
 @app.post("/report", response_class=HTMLResponse)
